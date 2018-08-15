@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  ConsumerKey:
+    Type: String
+    Description: "Your app's Twitter Consumer Key"
+  ConsumerSecret:
+    Type: String
+    Description: "Your app's Twitter Consumer Secret"
+  AccessToken:
+    Type: String
+    Description: "Your app's Twitter Access Token"
+  AccessTokenSecret:
+    Type: String
+    Description: "Your app's Twitter Access Token Secret"
+  KeyName:
+    Type: String
+    Description: "Name of an existing EC2 keypair."
+  AppId:
+    Type: String
+    Description: "Pinpoint client application ID created using CLI"
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: '10.0.0.0/16'
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+        InternetGatewayId: !Ref InternetGateway
+        VpcId: !Ref VPC
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+        VpcId: !Ref VPC
+  DefaultPublicRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties: 
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+        RouteTableId: !Ref PublicRouteTable
+        SubnetId: !Ref PublicSubnetOne
+  PublicSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+         Fn::Select:
+         - 0
+         - Fn::GetAZs: {Ref: 'AWS::Region'}
+      VpcId: !Ref 'VPC'
+      CidrBlock: '10.0.0.0/24'
+      MapPublicIpOnLaunch: true
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: 'allow SSH from anywhere'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+  FirehoseDeliveryRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "firehose.amazonaws.com"
+                - "s3.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "FirehoseESPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - 's3:AbortMultipartUpload'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                  - 's3:ListBucketMultipartUploads'
+                  - 's3:PutObject'
+                Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+                      - '/*'
+              - Effect: "Allow"
+                Action:
+                  - "es:DescribeElasticsearchDomain"
+                  - "es:DescribeElasticsearchDomains"
+                  - "es:DescribeElasticsearchDomainConfig"
+                  - "es:ESHttpPost"
+                  - "es:ESHttpPut"
+                Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:es'
+                      - ':'
+                      - !Ref "AWS::Region"
+                      - ':'
+                      - !Ref "AWS::AccountId"
+                      - ':domain/'
+                      - !Ref ElasticsearchDomain
+                  - !Join
+                    - ''
+                    - - 'arn:aws:es'
+                      - ':'
+                      - !Ref "AWS::Region"
+                      - ':'
+                      - !Ref "AWS::AccountId"
+                      - ':domain/'
+                      - !Ref ElasticsearchDomain
+                      - '/*'
+  LambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "LambdaPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - 'dynamodb:*'
+                  - "kinesis:Get*"
+                  - "kinesis:List*"
+                  - "kinesis:Describe*"
+                  - "mobiletargeting:*"
+                  - "logs:*"
+                  - "comprehend:*"
+                Resource: '*'
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: kinesis-put-record
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+              - 'kinesis:PutRecord'
+              - 'kinesis:PutRecords'
+              - 'kinesis:DescribeStream'
+            Resource: !GetAtt KinesisStream.Arn
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'EC2Role']
+  EC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+        ImageId: 'ami-14c5486b'
+        InstanceType: 't2.micro'
+        KeyName: !Ref 'KeyName'
+        SubnetId: !Ref 'PublicSubnetOne'
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        IamInstanceProfile: !Ref 'EC2InstanceProfile'
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            cd /home/ec2-user
+            wget https://raw.githubusercontent.com/aws-samples/amazon-pinpoint-social-sentiment/master/stream-producer/producer.py
+            wget https://raw.githubusercontent.com/aws-samples/amazon-pinpoint-social-sentiment/master/stream-producer/requirements.txt
+            wget https://raw.githubusercontent.com/aws-samples/amazon-pinpoint-social-sentiment/master/stream-producer/producer.conf -P /etc/init
+            chown ec2-user:ec2-user producer.py
+            pip install -r requirements.txt
+            echo "" >> /etc/init/producer.conf
+            echo env CONSUMER_KEY=${ConsumerKey} >> /etc/init/producer.conf
+            echo env CONSUMER_SECRET=${ConsumerSecret} >> /etc/init/producer.conf
+            echo env ACCESS_TOKEN=${AccessToken} >> /etc/init/producer.conf
+            echo env ACCESS_TOKEN_SECRET=${AccessTokenSecret} >> /etc/init/producer.conf
+            start producer
+  KinesisStream:
+    Type: 'AWS::Kinesis::Stream'
+    Properties:
+      Name: 'tweets'
+      ShardCount: 1
+  ElasticsearchDomain:
+    Type: 'AWS::Elasticsearch::Domain'
+    Properties:
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 100
+        VolumeType: 'standard'
+      DomainName: 'tweets'
+      ElasticsearchVersion: '6.2'
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS: '*'
+          Action:
+          - 'es:*'
+          Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/tweets/*'
+  KinesisFirehose:
+    Type: 'AWS::KinesisFirehose::DeliveryStream'
+    Properties:
+      ElasticsearchDestinationConfiguration:
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 1
+        DomainARN: !GetAtt ElasticsearchDomain.DomainArn
+        IndexName: 'tweets'
+        IndexRotationPeriod: 'NoRotation'
+        RetryOptions:
+          DurationInSeconds: 300
+        RoleARN: !GetAtt FirehoseDeliveryRole.Arn
+        S3BackupMode: 'AllDocuments'
+        S3Configuration:
+          BucketARN: !GetAtt S3Bucket.Arn
+          CompressionFormat: 'ZIP'
+          BufferingHints:
+            IntervalInSeconds: 60
+            SizeInMBs: 1
+          RoleARN: !GetAtt FirehoseDeliveryRole.Arn
+        TypeName: 'tweetstream'
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+  LambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Environment:
+        Variables:
+          'AppId': !Ref AppId
+      Code:
+        ZipFile: |
+          import base64
+          import json
+          import boto3
+          import uuid
+          import datetime
+          import os
+
+          client = boto3.client('comprehend')
+          pinpointclient = boto3.client('pinpoint')
+          print('Loading function')
+
+          def lambda_handler(event, context):
+              app_id = os.environ['app_id']
+              
+              for record in event['Records']:
+                  # Kinesis data is base64 encoded so decode here
+                  payload = base64.b64decode(record['kinesis']['data'])
+                  print(payload)
+                  screen_name = json.loads(payload)['user']['screen_name']
+                  
+                  try: 
+                      pinpointclient.get_endpoint(ApplicationId=app_id, EndpointId=screen_name)
+                  except Exception as e:
+                      print("Error occurred: ", e)
+                  else:
+                      # if endpoint exists, do sentiment analysis, send push, update endpoint
+                      response = client.detect_sentiment(
+                          Text=json.loads(payload)['text'],
+                          LanguageCode='en'
+                      )
+                      print(response)
+                      
+                      if response['Sentiment'] == 'POSITIVE':
+                          pinpointresponse = pinpointclient.send_users_messages(
+                              ApplicationId=app_id,
+                              SendUsersMessageRequest={
+                                  'Users': {
+                                      screen_name: {}
+                                  },
+                                  'MessageConfiguration': {
+                                      'APNSMessage': {
+                                          'Action': 'OPEN_APP',
+                                          'Body': 'Thanks for the feedback! Fill out this 2-question survey and get free gear https://tinyurl.com/SomeSurveyURL',
+                                          'Title': 'Thank you very much!'
+                                      }
+                                  }
+                              }
+                          )
+                          print(pinpointresponse)
+                          endpointresponse = pinpointclient.update_endpoint(
+                              ApplicationId=app_id,
+                              EndpointId=screen_name,
+                              EndpointRequest={
+                                  'EffectiveDate': datetime.datetime.now().isoformat(),
+                                  'RequestId': str(uuid.uuid4()),
+                                  'User': {
+                                      'UserAttributes': {
+                                          'Sentiment': [
+                                              'Positive',
+                                          ]
+                                      }
+                                  }
+                              }
+                          )
+                          print(endpointresponse)
+                      
+              return 'Successfully processed {} records.'.format(len(event['Records']))
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: 'python3.6'
+  LambdaTrigger:
+    Type: "AWS::Lambda::EventSourceMapping"
+    Properties: 
+      BatchSize: 100
+      Enabled: true
+      EventSourceArn: !GetAtt KinesisStream.Arn
+      FunctionName: !GetAtt LambdaFunction.Arn
+      StartingPosition: 'LATEST'
