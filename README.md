@@ -123,7 +123,7 @@ To launch the AWS CloudFormation template:
 
 When you choose *Create*, AWS CloudFormation creates the all of the backend components for the application. These include an EC2 instance, a Kinesis data stream, a Kinesis Firehose delivery stream, an S3 bucket, an Elasticsearch cluster, and a Lambda function. This process takes about 10 minutes to complete. 
 
-#### Step 6: send a test tweet
+#### Step 6: Send a test tweet
 
 Now you're ready to test the solution to make sure that all of the components work as expected.
 
@@ -139,7 +139,7 @@ On the Amazon Elasticsearch Service (Amazon ES) console, you can watch as Amazon
 ![Screenshot](images/kibana.png)
 Finally, you can go to your Amazon S3 bucket to view an archive of the tweets that were addressed to you. This bucket is useful for simple archiving, additional analysis, visualization, or even machine learning. You can access the Amazon S3 console at https://s3.console.aws.amazon.com/s3/home?region=us-east-1#.
 
-#### Step 7: create an Amazon Pinpoint campaign
+#### Step 7: Create an Amazon Pinpoint campaign
 
 In the real world, you probably don't want to send messages to users immediately after they send tweets to your Twitter handle—if you did, you might seem too aggressive, and your customers might hesitate to engage with your brand in the future.
 
