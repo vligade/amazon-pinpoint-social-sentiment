@@ -110,7 +110,7 @@ To launch the AWS CloudFormation template:
 1. Sign in to the AWS Management Console, and then open the AWS CloudFormation console at https://console.aws.amazon.com/cloudformation/home?region=us-east-1. 
 2. Use the region selector in the upper right to ensure that *US East (N. Virginia)* is the selected region.
 3. Choose *Create new stack*.
-4. Next to *Choose a template*, choose *Specify an Amazon S3 template URL*, and then paste the following URL: https://github.com/aws-samples/amazon-pinpoint-social-sentiment/blob/master/cloudformation/twitterdemo.template.yaml. Choose *Next*.
+4. Next to *Choose a template*, choose *Specify an Amazon S3 template URL*, and then paste the following URL: https://s3.amazonaws.com/mattd-customer-share/twitterdemo.template.yaml. Choose *Next*.
 5. Under *Specify Details*, for *Stack Name*, type a name for the CloudFormation stack.
 6. Under *Parameters*, do the following:
     1. For *AccessToken*, type your Twitter access token. 
